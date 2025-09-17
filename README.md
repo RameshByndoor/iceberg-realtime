@@ -1,12 +1,31 @@
-# Real-time Data Pipeline with Flink, Iceberg, and StarRocks
+# 🧊 Iceberg Real-time Analytics Pipeline
 
-A complete real-time data pipeline using Apache Flink 1.20, Apache Iceberg, StarRocks, and Kafka for streaming analytics.
+A complete real-time analytics pipeline built with **Apache Iceberg**, **Apache Flink**, **Kafka**, and **StarRocks**, featuring a configurable factory pattern for easy table onboarding.
 
 ## 🏗️ Architecture
 
 ```
-Kafka → Flink Jobs → Iceberg Tables (S3/MinIO) → StarRocks → SQLPad
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Python    │    │    Kafka    │    │    Flink    │    │   Iceberg   │
+│ Data Gen    │───▶│   (MinIO)   │───▶│  (Factory   │───▶│   (S3)      │
+│             │    │             │    │  Pattern)   │    │             │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+                                                              │
+                                                              ▼
+                                                   ┌─────────────┐
+                                                   │ StarRocks   │
+                                                   │ (Analytics) │
+                                                   └─────────────┘
 ```
+
+## ✨ Key Features
+
+- **🏭 Factory Pattern**: Configurable ingestion with support for append-only and upsert modes
+- **⚡ Real-time Processing**: Kafka → Flink → Iceberg pipeline
+- **🔍 Analytics Ready**: StarRocks integration for fast queries
+- **🐳 Docker Compose**: Complete containerized setup
+- **📊 Monitoring**: Kafka UI and SQLPad for data exploration
+- **🔧 Multi-module**: Clean Maven project structure
 
 ## 🚀 Quick Start
 
@@ -14,179 +33,212 @@ Kafka → Flink Jobs → Iceberg Tables (S3/MinIO) → StarRocks → SQLPad
 - Docker & Docker Compose
 - Java 11+
 - Maven 3.6+
-- Python 3.8+
 
-### One-Command Setup
+### 1. Clone and Setup
+```bash
+git clone https://github.com/RameshByndoor/iceberg-realtime.git
+cd iceberg-realtime
+```
+
+### 2. Start All Services
 ```bash
 ./scripts/setup-all.sh
 ```
 
-This single command will:
-1. Start all Docker services
-2. Create Kafka topics
-3. Create Iceberg tables via REST API
-4. Setup StarRocks with Iceberg external catalog
-5. Build and deploy Flink jobs
-6. Submit both Customer and Order ingestion jobs
-
-### Generate Test Data
+### 3. Generate Test Data
 ```bash
 cd data-generator
 python3 generate_data.py --initial-customers 5 --customers-per-minute 2 --orders-per-minute 5
 ```
 
-## 📁 Available Scripts
+### 4. Query Data
+Access SQLPad at http://localhost:3000 (admin@example.com/admin) and run:
+```sql
+SET CATALOG iceberg_catalog;
+USE `default`;
+SELECT * FROM customers LIMIT 10;
+```
 
-| Script | Purpose |
-|--------|---------|
-| `setup-all.sh` | Complete pipeline setup (recommended) |
-| `setup-kafka-topics.sh` | Create Kafka topics |
-| `setup-starrocks-catalog.sh` | Configure StarRocks Iceberg integration |
-| `build-and-deploy.sh` | Build and deploy Flink jobs |
+## 📁 Project Structure
 
-## 🌐 Access URLs
+```
+iceberg-realtime/
+├── 🐳 docker-compose.yml          # All services orchestration
+├── 📊 data-generator/             # Python data generator
+├── 🏭 iceberg-flink-ingestor/     # Main ingestion framework
+│   ├── iceberg-flink-config/      # Configuration classes
+│   ├── iceberg-flink-core/        # Core factory pattern
+│   └── iceberg-flink-examples/    # Example configurations
+├── 🧪 flink-test-jobs/            # Test jobs (Customer/Order ingestion)
+├── 📜 scripts/                    # Setup and deployment scripts
+└── 📖 README.md                   # This file
+```
 
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Flink Web UI | http://localhost:8081 | - |
-| Kafka UI | http://localhost:8080 | - |
-| MinIO Console | http://localhost:9001 | admin/password |
-| StarRocks FE | http://localhost:8030 | - |
-| StarRocks MySQL | localhost:9030 | root/(no password) |
-| SQLPad | http://localhost:3000 | admin@example.com/admin |
+## 🏭 Factory Pattern Architecture
 
-## 📊 Components
+The ingestion framework uses a factory pattern for maximum flexibility:
 
-### Core Services
-- **Apache Flink 1.20**: Stream processing engine
-- **Apache Kafka**: Message broker
-- **Apache Iceberg**: Table format for data lake
-- **MinIO**: S3-compatible object storage
-- **StarRocks**: Real-time analytics database
-- **SQLPad**: Web-based SQL query interface
+### Write Modes
+- **Append-only**: Simple, high-throughput ingestion
+- **Upsert**: Update/insert with equality field validation
 
-### Data Flow
-1. **Data Generation**: Python script generates customer and order data
-2. **Kafka Streaming**: Data flows through Kafka topics
-3. **Flink Processing**: Flink jobs consume from Kafka and write to Iceberg
-4. **Iceberg Storage**: Data stored in S3/MinIO with ACID properties
-5. **StarRocks Query**: StarRocks reads from Iceberg for analytics
-6. **SQLPad Interface**: Web UI for querying and visualization
+### Components
+- **Factories**: Create mode-specific components
+- **Mappers**: JSON to RowData conversion
+- **Validators**: Configuration validation
+- **Table Builders**: Iceberg sink configuration
+
+### Example Usage
+```bash
+# Submit a job with custom configuration
+docker exec flink-jobmanager /opt/flink/bin/flink run -d \
+  -c com.example.ingestor.GenericIngestionJob \
+  /opt/flink/lib/iceberg-flink-examples-1.0-SNAPSHOT.jar \
+  /path/to/your/config.json
+```
 
 ## 🔧 Configuration
 
-### Flink Jobs
-- **CustomerIngestionJob**: Processes customer data with upsert capability
-- **OrderIngestionJob**: Processes order data (append-only)
+### Table Configuration Example
+```json
+{
+  "table": {
+    "name": "customers",
+    "namespace": "default",
+    "write_mode": "upsert",
+    "equality_fields": ["customer_id"],
+    "schema": [
+      {"name": "customer_id", "type": "long"},
+      {"name": "name", "type": "string"},
+      {"name": "email", "type": "string"}
+    ]
+  },
+  "kafka": {
+    "bootstrap_servers": "kafka:9092",
+    "topic": "customers",
+    "group_id": "customers-group"
+  },
+  "iceberg": {
+    "catalog_uri": "http://iceberg-rest:8181",
+    "warehouse": "s3a://warehouse"
+  }
+}
+```
 
-### Iceberg Tables
-- **customers**: Customer master data with upsert support
-- **orders**: Order transaction data
+## 🌐 Service URLs
 
-### StarRocks Integration
-- External catalog configuration for Iceberg
-- MySQL-compatible interface (port 9030)
-- Direct access to Iceberg tables via external catalog
-- SQLPad connects to StarRocks via MySQL protocol
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| **Flink Web UI** | http://localhost:8081 | - |
+| **Kafka UI** | http://localhost:8080 | - |
+| **MinIO Console** | http://localhost:9001 | admin/password |
+| **StarRocks FE** | http://localhost:8030 | - |
+| **StarRocks MySQL** | localhost:9030 | root/(no password) |
+| **SQLPad** | http://localhost:3000 | admin@example.com/admin |
 
-## 📝 SQL Examples
+## 📊 Data Flow
 
-### Query Iceberg data via StarRocks
-```sql
--- Connect to StarRocks via MySQL protocol
--- Host: localhost, Port: 9030, User: root
+1. **Data Generation**: Python script generates customer/order data
+2. **Kafka Ingestion**: Data published to Kafka topics
+3. **Flink Processing**: Factory pattern selects appropriate components
+4. **Iceberg Storage**: Data written to S3-backed Iceberg tables
+5. **StarRocks Analytics**: External catalog enables fast queries
+6. **SQLPad Interface**: Web-based SQL querying
 
--- Show available catalogs
-SHOW CATALOGS;
+## 🧪 Test Jobs
 
--- Switch to Iceberg catalog
-USE CATALOG iceberg_catalog;
+The `flink-test-jobs/` directory contains simple test jobs for basic functionality:
 
--- Show tables in Iceberg catalog
-SHOW TABLES;
+- **CustomerIngestionJob**: Ingests customer data from Kafka to Iceberg
+- **OrderIngestionJob**: Ingests order data from Kafka to Iceberg
 
--- Query customers table
-SELECT * FROM customers LIMIT 10;
+These are standalone jobs for testing the basic pipeline before using the factory pattern framework.
 
--- Query orders table
-SELECT * FROM orders LIMIT 10;
+### Running Test Jobs
+```bash
+# Build test jobs
+cd flink-test-jobs
+mvn clean package
 
--- Customer order summary
-SELECT 
-    c.name,
-    COUNT(o.order_id) as order_count,
-    SUM(o.total_amount) as total_spent
-FROM customers c
-JOIN orders o ON c.customer_id = o.customer_id
-GROUP BY c.customer_id, c.name
-ORDER BY total_spent DESC;
+# Submit customer job
+docker exec flink-jobmanager /opt/flink/bin/flink run -d \
+  -c com.example.CustomerIngestionJob \
+  /opt/flink/lib/iceberg-flink-jobs-1.0-SNAPSHOT.jar
+
+# Submit order job  
+docker exec flink-jobmanager /opt/flink/bin/flink run -d \
+  -c com.example.OrderIngestionJob \
+  /opt/flink/lib/iceberg-flink-jobs-1.0-SNAPSHOT.jar
 ```
 
 ## 🛠️ Development
 
-### Project Structure
-```
-├── flink-jobs/           # Flink streaming jobs
-├── data-generator/       # Python data generator
-├── scripts/             # Setup and utility scripts
-├── docker-compose.yml   # Service orchestration
-└── README.md           # This file
+### Building the Project
+```bash
+# Build main framework
+cd iceberg-flink-ingestor
+mvn clean package
+
+# Build test jobs
+cd ../flink-test-jobs
+mvn clean package
 ```
 
-### Adding New Jobs
-1. Create new Java class extending the base pattern
-2. Update `pom.xml` if new dependencies needed
-3. Build and deploy: `./scripts/build-and-deploy.sh`
-4. Submit job via Flink Web UI or CLI
+### Adding New Write Modes
+1. Implement `IngestionFactory` interface
+2. Create mode-specific mappers, validators, and table builders
+3. Register factory in `FactoryRegistry`
 
-### Monitoring
-- **Flink Web UI**: Job status, metrics, and logs
-- **Kafka UI**: Topic monitoring and message inspection
-- **MinIO Console**: Storage usage and file management
-- **StarRocks FE**: Query performance and system status
+### Custom Table Onboarding
+1. Create JSON configuration file
+2. Define table schema and write mode
+3. Submit job with configuration
+
+## 📈 Monitoring
+
+- **Flink Jobs**: Monitor at http://localhost:8081
+- **Kafka Topics**: View at http://localhost:8080
+- **Data Queries**: Use SQLPad at http://localhost:3000
+- **Storage**: Check MinIO at http://localhost:9001
 
 ## 🔍 Troubleshooting
 
 ### Common Issues
-1. **AWS Region Error**: Ensure `aws.region=us-east-1` is set in all Flink configurations
-2. **Table Not Found**: Recreate tables using `./scripts/setup-iceberg.sql`
-3. **StarRocks Connection**: Wait for StarRocks to fully initialize (2-3 minutes)
-4. **Data Not Appearing**: Check Flink job status and Kafka topic messages
+1. **Port Conflicts**: Ensure ports 8080-8081, 9000-9001, 3000, 8030, 9030 are available
+2. **Memory Issues**: Increase Docker memory allocation
+3. **S3 Connection**: Verify MinIO credentials and endpoint
 
 ### Logs
 ```bash
-# Flink logs
+# View Flink logs
 docker logs flink-jobmanager
-docker logs flink-taskmanager
 
-# StarRocks logs
-docker logs starrocks-fe
-docker logs starrocks-be
-
-# Kafka logs
+# View Kafka logs
 docker logs kafka
+
+# View StarRocks logs
+docker logs starrocks-fe
 ```
-
-## 📈 Performance Tuning
-
-### Flink
-- Adjust `taskmanager.numberOfTaskSlots` based on CPU cores
-- Tune `parallelism.default` for job parallelism
-- Configure checkpoint intervals for fault tolerance
-
-### StarRocks
-- Optimize query performance with proper indexing
-- Use materialized views for common aggregations
-- Configure memory settings based on available resources
 
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Test thoroughly
+4. Add tests if applicable
 5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- Apache Iceberg for the table format
+- Apache Flink for stream processing
+- StarRocks for analytics capabilities
+- The open-source community for inspiration
+
+---
+
+**Built with ❤️ for real-time analytics**
