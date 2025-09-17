@@ -1,0 +1,75 @@
+{
+  "table": {
+    "name": "orders",
+    "namespace": "default",
+    "write_mode": "append",
+    "schema": [
+      {
+        "name": "order_id",
+        "type": "long",
+        "required": true,
+        "mapping": "order_id"
+      },
+      {
+        "name": "customer_id",
+        "type": "long",
+        "required": true,
+        "mapping": "customer_id"
+      },
+      {
+        "name": "product_name",
+        "type": "string",
+        "required": false,
+        "mapping": "product_name"
+      },
+      {
+        "name": "quantity",
+        "type": "int",
+        "required": false,
+        "mapping": "quantity"
+      },
+      {
+        "name": "unit_price",
+        "type": "double",
+        "required": false,
+        "mapping": "unit_price"
+      },
+      {
+        "name": "total_amount",
+        "type": "double",
+        "required": false,
+        "mapping": "total_amount"
+      },
+      {
+        "name": "order_status",
+        "type": "string",
+        "required": false,
+        "mapping": "order_status"
+      },
+      {
+        "name": "order_date",
+        "type": "timestamp",
+        "required": false,
+        "mapping": "order_date"
+      }
+    ]
+  },
+  "kafka": {
+    "bootstrap_servers": "kafka:29092",
+    "topic": "orders",
+    "group_id": "orders-ingestion-group",
+    "starting_offset": "latest"
+  },
+  "iceberg": {
+    "catalog_uri": "http://iceberg-rest:8181",
+    "warehouse": "s3a://warehouse",
+    "io_impl": "org.apache.iceberg.aws.s3.S3FileIO"
+  },
+  "aws": {
+    "region": "us-east-1",
+    "access_key_id": "admin",
+    "secret_access_key": "password",
+    "endpoint": "http://minio:9000",
+    "path_style_access": true
+  }
+}

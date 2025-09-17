@@ -1,0 +1,70 @@
+{
+  "table": {
+    "name": "customers",
+    "namespace": "default",
+    "write_mode": "upsert",
+    "equality_fields": ["customer_id"],
+    "schema": [
+      {
+        "name": "customer_id",
+        "type": "long",
+        "required": true,
+        "mapping": "customer_id"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "mapping": "name"
+      },
+      {
+        "name": "email",
+        "type": "string",
+        "required": false,
+        "mapping": "email"
+      },
+      {
+        "name": "phone",
+        "type": "string",
+        "required": false,
+        "mapping": "phone"
+      },
+      {
+        "name": "address",
+        "type": "string",
+        "required": false,
+        "mapping": "address"
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp",
+        "required": false,
+        "mapping": "created_at"
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp",
+        "required": false,
+        "mapping": "updated_at"
+      }
+    ]
+  },
+  "kafka": {
+    "bootstrap_servers": "kafka:29092",
+    "topic": "customers",
+    "group_id": "customers-ingestion-group",
+    "starting_offset": "latest"
+  },
+  "iceberg": {
+    "catalog_uri": "http://iceberg-rest:8181",
+    "warehouse": "s3a://warehouse",
+    "io_impl": "org.apache.iceberg.aws.s3.S3FileIO"
+  },
+  "aws": {
+    "region": "us-east-1",
+    "access_key_id": "admin",
+    "secret_access_key": "password",
+    "endpoint": "http://minio:9000",
+    "path_style_access": true
+  }
+}

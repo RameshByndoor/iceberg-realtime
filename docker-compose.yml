@@ -1,0 +1,248 @@
+version: '3.8'
+
+services:
+  # Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Create MinIO bucket
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host add minio http://minio:9000 admin password;
+      /usr/bin/mc mb minio/warehouse;
+      exit 0;
+      "
+
+  # Iceberg REST Catalog
+  iceberg-rest:
+    image: tabulario/iceberg-rest:latest
+    container_name: iceberg-rest
+    ports:
+      - "8181:8181"
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - CATALOG_WAREHOUSE=s3a://warehouse/
+      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_S3_ENDPOINT=http://minio:9000
+      - CATALOG_S3_PATH__STYLE__ACCESS=true
+    depends_on:
+      - minio
+
+  # Flink JobManager
+  jobmanager:
+    image: flink:1.20.0-scala_2.12-java11
+    container_name: flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_DEFAULT_REGION=us-east-1
+      - JAVA_TOOL_OPTIONS=-Daws.region=us-east-1
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 1
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 1728m
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: admin
+        fs.s3a.secret.key: password
+        fs.s3a.path.style.access: true
+        fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
+        fs.s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+        s3.endpoint: http://minio:9000
+        s3.access-key-id: admin
+        s3.secret-access-key: password
+        s3.path-style-access: true
+        env.java.opts.jobmanager: -Daws.region=us-east-1
+        env.java.opts.taskmanager: -Daws.region=us-east-1
+    volumes:
+      - ./flink-jobs/target:/opt/flink/usrlib
+
+  # Flink TaskManager
+  taskmanager:
+    image: flink:1.20.0-scala_2.12-java11
+    container_name: flink-taskmanager
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    scale: 1
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_DEFAULT_REGION=us-east-1
+      - JAVA_TOOL_OPTIONS=-Daws.region=us-east-1
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 1
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 1728m
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: admin
+        fs.s3a.secret.key: password
+        fs.s3a.path.style.access: true
+        fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
+        fs.s3a.aws.credentials.provider: org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+        s3.endpoint: http://minio:9000
+        s3.access-key-id: admin
+        s3.secret-access-key: password
+        s3.path-style-access: true
+        env.java.opts.jobmanager: -Daws.region=us-east-1
+        env.java.opts.taskmanager: -Daws.region=us-east-1
+    volumes:
+      - ./flink-jobs/target:/opt/flink/usrlib
+
+  # Kafka UI
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  # StarRocks FE (Frontend)
+  starrocks-fe:
+    image: starrocks/fe-ubuntu:3.3.5
+    hostname: starrocks-fe
+    container_name: starrocks-fe
+    user: root
+    command: |
+      bash /opt/starrocks/fe/bin/start_fe.sh --host_type FQDN
+    ports:
+      - 8030:8030
+      - 9020:9020
+      - 9030:9030
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    healthcheck:
+      test: 'mysql -u root -h starrocks-fe -P 9030 -e "SHOW FRONTENDS\G" |grep "Alive: true"'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # StarRocks BE (Backend)
+  starrocks-be:
+    image: starrocks/be-ubuntu:3.3.5
+    command:
+      - /bin/bash
+      - -c
+      - |
+        ulimit -n 65535;
+        echo "# Enable data cache"  >> /opt/starrocks/be/conf/be.conf
+        echo "block_cache_enable = true"  >> /opt/starrocks/be/conf/be.conf
+        echo "block_cache_mem_size = 536870912" >> /opt/starrocks/be/conf/be.conf
+        echo "block_cache_disk_size = 1073741824" >> /opt/starrocks/be/conf/be.conf
+        sleep 15s
+        mysql --connect-timeout 2 -h starrocks-fe -P 9030 -u root -e "ALTER SYSTEM ADD BACKEND \"starrocks-be:9050\";"
+        bash /opt/starrocks/be/bin/start_be.sh
+    ports:
+      - 8040:8040
+    hostname: starrocks-be
+    container_name: starrocks-be
+    user: root
+    depends_on:
+      starrocks-fe:
+        condition: service_healthy
+    healthcheck:
+      test: 'mysql -u root -h starrocks-fe -P 9030 -e "SHOW BACKENDS\G" |grep "Alive: true"'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    environment:
+      - HOST_TYPE=FQDN
+
+  # SQLPad (connects to StarRocks via MySQL protocol)
+  sqlpad:
+    image: sqlpad/sqlpad:latest
+    container_name: sqlpad
+    ports:
+      - "3000:3000"
+    environment:
+      - SQLPAD_ADMIN=admin@example.com
+      - SQLPAD_ADMIN_PASSWORD=admin
+      - SQLPAD_APP_LOG_LEVEL=info
+      - SQLPAD_WEB_LOG_LEVEL=warn
+    volumes:
+      - sqlpad-data:/var/lib/sqlpad
+    depends_on:
+      - starrocks-fe
+
+volumes:
+  zookeeper-data:
+  zookeeper-logs:
+  kafka-data:
+  minio-data:
+  sqlpad-data:
